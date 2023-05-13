@@ -140,3 +140,19 @@ func InsertFakeData(db *bun.DB, numProducts, numCustomers, numOrders, numOrderIt
 	return nil
 }
 
+
+func FetchAllData(db *bun.DB) ([]*database.Order, error) {
+	ctx := context.Background()
+	var orders []*database.Order
+	err := db.NewSelect().
+		Model(&orders).
+		Relation("Customer").
+		Relation("OrderItems.Product").
+		Scan(ctx)
+
+	if err != nil {
+		return nil, fmt.Errorf("error fetching all data: %w", err)
+	}
+
+	return orders, nil
+}
