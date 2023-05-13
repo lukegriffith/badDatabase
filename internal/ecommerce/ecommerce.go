@@ -3,9 +3,13 @@ package ecommerce
 import (
 	"context"
 	"fmt"
-	"github.com/uptrace/bun"
+	"reflect"
+	"time"
+	"math/rand"
+
+	faker "github.com/bxcodec/faker/v3"
 	"github.com/lukegriffith/badDatabase/internal/ecommerce/database"
-	"github.com/bxcodec/faker/v3"
+	"github.com/uptrace/bun"
 )
 
 func CreateTables(db *bun.DB) error {
@@ -35,15 +39,22 @@ func CreateTables(db *bun.DB) error {
 
 func InsertFakeData(db *bun.DB, numProducts, numCustomers, numOrders, numOrderItems int) error {
 	ctx := context.Background()
-
+	rand.Seed(time.Now().UnixNano())
 	// Insert fake products
 	for i := 0; i < numProducts; i++ {
-		product := database.Product{
-			Name:        faker.Name(),
-			Description: faker.Sentence(),
-			Price:       faker.Float64Range(1, 100),
+		var price float64
+		v := reflect.ValueOf(&price).Elem()
+		p, err := faker.GetPrice().Amount(v)
+		price = p.(float64)
+		if err != nil {
+			panic(err)
 		}
-		_, err := db.NewInsert().Model(&product).Exec(ctx)
+		product := database.Product{
+			ProductName:        faker.Name(),
+			Description: faker.Sentence(),
+			Price: price,
+		}
+		_, err = db.NewInsert().Model(&product).Exec(ctx)
 		if err != nil {
 			return fmt.Errorf("error inserting product: %w", err)
 		}
@@ -52,9 +63,9 @@ func InsertFakeData(db *bun.DB, numProducts, numCustomers, numOrders, numOrderIt
 	// Insert fake customers
 	for i := 0; i < numCustomers; i++ {
 		customer := database.Customer{
-			FirstName: faker.FirstName(),
-			LastName:  faker.LastName(),
+			Name: fmt.Sprintf("%s %s", faker.FirstName(), faker.LastName()),
 			Email:     faker.Email(),
+			PhoneNumber: faker.Phonenumber(),
 		}
 		_, err := db.NewInsert().Model(&customer).Exec(ctx)
 		if err != nil {
@@ -62,12 +73,70 @@ func InsertFakeData(db *bun.DB, numProducts, numCustomers, numOrders, numOrderIt
 		}
 	}
 
-	// Insert fake orders and order items
-	for i := 0; i < numOrderItems; i++ {
-		orders := database.OrderItem{
-			// TODO	
+	// Retrieve all customers
+	var customers []database.Customer
+	err := db.NewSelect().Model(&customers).Scan(ctx)
+	if err != nil {
+		return fmt.Errorf("error retrieving customers: %w", err)
+	}
+
+	// Check if there are customers available
+	if len(customers) == 0 {
+		return fmt.Errorf("error: no customers found")
+	}
+
+
+
+	// Insert fake orders
+	for i := 0; i < numOrders; i++ {
+		order := database.Order{
+			CustomerID: customers[rand.Intn(len(customers))].CustomerID,
+			OrderDate: time.Now(),
+		}
+		_, err := db.NewInsert().Model(&order).Exec(ctx)
+		if err != nil {
+			return fmt.Errorf("error inserting order: %w", err)
 		}
 	}
 
 
+	// Retrieve all orders and products
+	var orders []database.Order
+	err = db.NewSelect().Model(&orders).Scan(ctx)
+	if err != nil {
+		return fmt.Errorf("error retrieving orders: %w", err)
+	}
+
+	var products []database.Product
+	err = db.NewSelect().Model(&products).Scan(ctx)
+	if err != nil {
+		return fmt.Errorf("error retrieving products: %w", err)
+	}
+
+	// Check if there are orders and products available
+	if len(orders) == 0 || len(products) == 0 {
+		return fmt.Errorf("error: no orders or products found")
+	}
+
+
+
+	// Insert fake order items
+	for i := 0; i < numOrderItems; i++ {
+		var price float64
+		v := reflect.ValueOf(&price).Elem()
+		p, err := faker.GetPrice().Amount(v)
+		price = p.(float64)
+		orderItem := database.OrderItem{
+			OrderID:   orders[rand.Intn(len(orders))].OrderID,
+			ProductID: products[rand.Intn(len(products))].ProductID,
+			Quantity:  rand.Intn(10) + 1,
+			TotalPrice:     price,
+		}
+		_, err = db.NewInsert().Model(&orderItem).Exec(ctx)
+		if err != nil {
+			return fmt.Errorf("error inserting order item: %w", err)
+		}
+	}
+	return nil
+}
 
